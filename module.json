@@ -9,7 +9,7 @@
     ],
     "socket": true,
     "minimumCoreVersion": "9.0",
-    "compatibleCoreVersion": "10.279",
+    "compatibleCoreVersion": "10.303",
     "flags": {
         "minimumSensorVersion": "2.1.5",
         "minimumSensorWsVersion": "1.0.0",
