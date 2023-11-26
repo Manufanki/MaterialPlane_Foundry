@@ -3,3 +3,5 @@ This is a fork of the repository for the Material Plane module for Foundry VTT.<
 I modified the code to improve the use of capacitive and infrared touch screens.
 For the original project please head over to the <a href="https://github.com/cdeenen/materialplane">main Material Plane repository</a> for more info.<br>
 Please report bugs and request features on that page.
+
+manifest: https://github.com/Manufanki/MaterialPlane_Foundry/releases/latest/download/module.json
