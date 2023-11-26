@@ -1,6 +1,6 @@
 import { moduleName,configDialog,calibrationProgress } from "../MaterialPlane.js";
 import { IRtoken } from "./IRtoken/IRtoken.js";
-import { cursor, scaleIRinput, debug } from "./Misc/misc.js";
+import { cursor, scaleIRinput } from "./Misc/misc.js";
 import { Pen } from "./Pen/pen.js";
 
 export let lastBaseAddress = 0;
@@ -13,8 +13,8 @@ function getTokenByID(id){
     const tokenIDs = game.settings.get(moduleName,'baseSetup');
     const baseData = tokenIDs.find(p => p.baseId == id);
     if (baseData == undefined) return undefined;
-    if (baseData.linkActor) return canvas.tokens.placeables.find(p => p.actor.name == baseData.actorName);
-    else if (baseData.sceneName == canvas.scene.name) return canvas.tokens.placeables.find(p => p.name == baseData.tokenName);
+    if (baseData.linkActor) return canvas.tokens.children[0].children.find(p => p.actor.name == baseData.actorName);
+    else if (baseData.sceneName == canvas.scene.name)return canvas.tokens.children[0].children.find(p => p.name == baseData.tokenName);
     return undefined;
 }
 
@@ -44,29 +44,26 @@ export function setLastBaseAddress(address) {
  * If no coordinates are received, move token to last recieved position
  */
 export async function analyzeIR(data) {
-    const activeUser = game.settings.get(moduleName,'ActiveUser');
-    if (configDialog?.configOpen) configDialog.drawIrCoordinates(data);
-    //console.log('data',data)
 
-    foundBases = data.detectedPoints;
+    const targetUser = game.settings.get(moduleName,'TargetName');
 
-    if (foundBases == 0) {
-       // if (game.user.id != activeUser) return;
-       // for (let token of IRtokens) token.dropIRtoken(); 
-       // foundBases = 0;
-       debug('baseData',`No base detected`)
+    if (configDialog?.configOpen) configDialog.drawIrCoordinates(data.data);
+//console.log('data',data)
+    if (data.data.length == 0) {
+        if (game.user.name != targetUser) return;
+        for (let token of IRtokens) token.dropIRtoken(); 
+        foundBases = 0;
         return;
     }
    
-    if (data.command > 1 && data.command != 129 && configDialog?.configOpen == false && calibrationProgress?.calibrationRunning == false) {
-        if (game.user.id != activeUser) return;
+    foundBases = data.points;
+    if (data.data[0].command > 2 && data.data[0].command != 129 && configDialog?.configOpen == false && calibrationProgress?.calibrationRunning == false) {
+        if (game.user.name != targetUser) return;
         pen.analyze(data);
     }
     else {
-        for (let i=0; i<foundBases; i++) {
-            const point = data.irPoints[i];
-            //console.log('point',point, data.command)
-            let command = data.command;
+        for (let i=0; i<data.data.length; i++) {
+            const point = data.data[i];
             
             if (calibrationProgress?.calibrationRunning) {
                 calibrationProgress.updatePoint(point);
@@ -79,90 +76,62 @@ export async function analyzeIR(data) {
                 continue;
             }
             */
-            
-
-            //Drop token if x and y are -9999
-            
+            if (game.user.name != targetUser) return;
             
             let forceNew = false;
             const coords = {x:point.x, y:point.y};
             let scaledCoords = scaleIRinput(coords);
 
-            debug('baseData',`Command: ${command}, nr of bases: ${foundBases}, base ID: ${data.id}`)
-            
             if (foundBases == 1) {
-                if (data.id != 0) {
-                    lastBaseAddress = data.id;
-                    const payload = {
-                        msgType: "lastBaseAddress",
-                        lastBaseAddress
-                    }
-                    game.socket.emit(`module.MaterialPlane`, payload);
-                    if (document.getElementById("MaterialPlane_Config") != null) {
-                        document.getElementById("mpLastBaseAddress").value=data.id;
-                        debug('baseData',`Set last base ID: ${data.id}`)
-                        let baseElmnts = Array.from(document.getElementsByName('mpBaseId'));
-                        if (baseElmnts != undefined)  {
-                            for (let elmnt of baseElmnts) {
-                                if (data.id == elmnt.value) elmnt.style.color="green";
-                                else elmnt.style.color="";
-                            }
-                        }
-                    }
-                    if (game.user.id != activeUser) return;
-                    if (data.id != 0 && !(configDialog?.configOpen && configDialog?.blockInteraction)) {
-                        if (data.id != lastBaseAddress || IRtokens[point.number].token == undefined) {
-                            const token = getTokenByID(data.id);
-                            
-                            if (token != undefined) {
-                                IRtokens[point.number].token = token;
-                                debug('baseData',`Grabbed token ${token.name} with base ID: ${data.id}`)
-                            }
-                            else {
-                                debug('baseData',`No configured token for base ID: ${data.id}`)
-                            }
-                            forceNew = true;
-                        }
+                lastBaseAddress = point.id;
+                const payload = {
+                    msgType: "lastBaseAddress",
+                    lastBaseAddress
+                }
+                game.socket.emit(`module.MaterialPlane`, payload);
+                if (document.getElementById("MaterialPlane_Config") != null) {
+                    document.getElementById("mpLastBaseAddress").value=point.id;
+                    for (let i=0; i<999; i++) {
+                        let base = document.getElementById("baseId-"+i);
+                        if (base == null) break;
+                        if (point.id == base.value) base.style.color="green";
+                        else base.style.color="";
                     }
                 }
-                
-                
+                if (point.id != 0 && !(configDialog?.configOpen && configDialog?.blockInteraction)) {
+                    if (point.id != lastBaseAddress || IRtokens[point.point].token == undefined) {
+                        const token = getTokenByID(point.id);
+                        if (token != undefined) IRtokens[point.point].token = token;
+                        forceNew = true;
+                    }
+                }
             }
-
-            if (game.user.id != activeUser) return;
-            
             if (configDialog?.configOpen  && configDialog?.blockInteraction) return;
-
-            if (point.x == -9999 && point.y == -9999) {
-                //await IRtokens[point.number].update()
-                IRtokens[point.number].dropIRtoken();
-                cursors[point.number].hide();
-            }
-            else if (command < 2) {   //move token
-                if (await IRtokens[point.number].update(coords,scaledCoords,forceNew) == false) {
+            
+            if (point.command < 2) {   //move token
+                if (await IRtokens[point.point].update(coords,scaledCoords,forceNew) == false) {
                     if (coords.x != undefined && coords.y != undefined) {
-                        cursors[point.number].updateCursor({
+                        cursors[point.point].updateCursor({
                             x: scaledCoords.x,
                             y: scaledCoords.y,
                             size: 5,
                             color: "0xFF0000"
                         });
-                        cursors[point.number].show();
+                        cursors[point.point].show();
                     }
                 }
                 else {
-                    cursors[point.number].hide();
+                    cursors[point.point].hide();
                 }
             }
-            else if (command == 129) {    //drop token
-                await IRtokens[point.number].update(coords,scaledCoords,forceNew)
-                IRtokens[point.number].dropIRtoken();
-                cursors[point.number].hide();
+            else if (point.command == 129) {    //drop token
+                await IRtokens[point.point].update(coords,scaledCoords,forceNew)
+                IRtokens[point.point].dropIRtoken();
+                cursors[point.point].hide();
             }
-            /*
-            else if (command == 2) {      //pen pointer
+            else if (point.command == 8) {      //pen pointer
                 if (coords.x != undefined && coords.y != undefined) {
-                    if (oldCommand != 2) {
+                    if (oldCommand != 8) {
                         pen.release(oldCommand,{
                             x: scaledCoords.x,
                             y: scaledCoords.y
@@ -177,25 +146,25 @@ export async function analyzeIR(data) {
                     });
                 }
             }
-            else if (command == 3) {      //pen A
+            else if (point.command == 40) {      //pen left
                 if (coords.x != undefined && coords.y != undefined) {
-                    pen.click(command,{
+                    pen.click(point.command,{
                         x: scaledCoords.x,
                         y: scaledCoords.y,
                         rawCoords: coords
                     });
                 }
             }
-            else if (command == 6) {      //pen D
+            else if (point.command == 24) {      //pen right
                 if (coords.x != undefined && coords.y != undefined) {
-                    if (oldCommand == 6) {
-                        pen.hold(command,{
+                    if (oldCommand == 24) {
+                        pen.hold(point.command,{
                             x: scaledCoords.x,
                             y: scaledCoords.y
                         });
                     }
                     else {
-                        pen.click(command,{
+                        pen.click(point.command,{
                             x: scaledCoords.x,
                             y: scaledCoords.y,
                             rawCoords: coords
@@ -203,16 +172,16 @@ export async function analyzeIR(data) {
                     }
                 }
             }
-            else if (command == 5) {      //pen C
+            else if (point.command == 94) {      //pen front
                 if (coords.x != undefined && coords.y != undefined) {
-                    if (oldCommand == 5) {
-                        pen.hold(command,{
+                    if (oldCommand == 94) {
+                        pen.hold(point.command,{
                             x: scaledCoords.x,
                             y: scaledCoords.y
                         });
                     }
                     else {
-                        pen.click(command,{
+                        pen.click(point.command,{
                             x: scaledCoords.x,
                             y: scaledCoords.y,
                             rawCoords: coords
@@ -220,7 +189,7 @@ export async function analyzeIR(data) {
                     }
                 }
             }
-            else if (command == 4) {      //pen B
+            else if (point.command == 72) {      //pen rear
                 if (coords.x != undefined && coords.y != undefined) {
                     pen.updateCursor({
                         x: scaledCoords.x,
@@ -230,8 +199,7 @@ export async function analyzeIR(data) {
                     });
                 }
             }
-            oldCommand = command;
-            */
+            oldCommand = point.command;
         }
     }
 }

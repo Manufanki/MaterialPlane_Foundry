@@ -9,70 +9,8 @@ let debugSettings = {
   nearestToken: false,
   updateMovement: false,
   moveToken: false,
-  dropToken: false,
-  baseData: false,
-  cal: false
+  dropToken: false
 };
-
-export function activateControl(controlName) {
-  if (ui.controls.activeControl == controlName) return;
-  const control = ui.controls.controls.find(c => c.name == controlName);
-  ui.controls.initialize({layer:control.layer});
-  canvas.layers.find(l => l.options.name == control.layer).activate();
-  ui.controls.render(); 
-}
-
-export function updatePowerState(data) {
-  let battery = data.percentage;
-  let batteryColor = "#FFFFFF";
-  const chargingState = data.chargingState;
-
-  if (battery > 100) battery = 100;
-  if (battery < 0) battery = 0;
-  let icon;
-
-  if (battery >= 80) {
-      icon = 'fas fa-battery-full';
-      batteryColor = "#00FF00";
-  }
-  else if (battery >= 60 && battery < 80) {
-      icon = 'fas fa-battery-three-quarters';
-      batteryColor = "#B9FF00";
-  }
-  else if (battery >= 40 && battery < 60) {
-      icon = 'fas fa-battery-half';
-      batteryColor = "#F0FF00";
-  }
-  else if (battery >= 20 && battery < 40) {
-      icon = 'fas fa-battery-quarter';
-      batteryColor = "#FF9000";
-  }
-  else if (battery < 20) {
-      icon = 'fas fa-battery-empty';
-      batteryColor = "#FF0000";
-  }
-
-  if (chargingState == 1) {   //charging
-      icon = 'fas fa-battery-bolt';
-  }
-  
-  if (document.getElementById("batteryLabel") == null) {
-      const playersElement = document.getElementsByClassName("players-mode")[0];
-      let batteryIcon = document.createElement("i");
-      batteryIcon.id = "batteryIcon";
-      batteryIcon.style.fontSize = "0.75em";
-      let batteryLabel = document.createElement("bat");
-      batteryLabel.id = "batteryLabel";
-      batteryLabel.style.fontSize = "0.8em";
-
-      playersElement.after(batteryLabel);
-      playersElement.after(batteryIcon);
-  }
-  
-  document.getElementById("batteryLabel").innerHTML = `${battery}%`;
-  document.getElementById("batteryIcon").className = icon; 
-  document.getElementById("batteryIcon").style.color = batteryColor;
-}
 
 export function configureDebug(data) {
   for (const [key,value] of Object.entries(data)) {
@@ -119,19 +57,17 @@ export function compatibleCore(compatibleVersion){
      */
 export function scaleIRinput(coords){
   if (coords.x < 0) coords.x = 0;
-  if (coords.x > 4095) coords.x = 4095;
+  if (coords.x > 4093) coords.x = 4093;
   if (coords.y < 0) coords.y = 0;
-  if (coords.y > 4095) coords.y = 4095;
+  if (coords.y > 4093) coords.y = 4093;
 
   //Calculate the amount of pixels that are visible on the screen
   const horVisible = screen.width/canvas.scene._viewPosition.scale;
   const vertVisible = screen.height/canvas.scene._viewPosition.scale;
 
   //Calculate the scaled coordinates
-  const posX = (coords.x/4096)*horVisible+canvas.scene._viewPosition.x-horVisible/2;
-  const posY = (coords.y/4096)*vertVisible+canvas.scene._viewPosition.y-vertVisible/2;
-
-  debug('cal',`Raw: (${Math.round(coords.x)}, ${Math.round(coords.y)}). Scaled: (${Math.round(posX)}, ${Math.round(posY)}). View: (${Math.round(canvas.scene._viewPosition.x)}, ${Math.round(canvas.scene._viewPosition.y)}, ${canvas.scene._viewPosition.scale}). Canvas: ${canvas.dimensions.width}x${canvas.dimensions.height} (${canvas.dimensions.rect.x}, ${canvas.dimensions.rect.y}). Scene: ${canvas.dimensions.sceneWidth}x${canvas.dimensions.sceneHeight} (${canvas.dimensions.sceneRect.x}, ${canvas.dimensions.sceneRect.y}). Display: ${screen.width}x${screen.height}`)
+  const posX = (coords.x/4093)*horVisible+canvas.scene._viewPosition.x-horVisible/2;
+  const posY = (coords.y/4093)*vertVisible+canvas.scene._viewPosition.y-vertVisible/2;
 
   //Return the value
   return {"x":Math.round(posX),"y":Math.round(posY)};
@@ -148,11 +84,14 @@ export function generateId(){
 }
 
 export function registerLayer() {
-  const layers =  {
+  const layers =  compatibleCore("0.9") ? {
     materialPlane: {
           layerClass: MaterialPlaneLayer,
           group: "primary"
       }
+  }
+  : {
+    materialPlane: MaterialPlaneLayer
   }
 
   CONFIG.Canvas.layers = foundry.utils.mergeObject(Canvas.layers, layers);
@@ -165,40 +104,6 @@ export function registerLayer() {
             }
         })
     }
-}
-
-export class MovingAverage {
-  val = [];
-  count = 0;
-  size = 10;
-  complete=false;
-
-  constructor(size = 10) {
-    this.size = size;
-  }
-
-  reset() {
-    this.count = 0;
-    this.complete = false;
-  }
-
-  newValue(val) {
-    this.val[this.count] = val;
-    this.count++;
-    if (this.count > this.size) {
-      this.count -= this.size + 1;
-      this.complete = true;
-    }
-
-    let newVal = 0;
-    const len = this.complete ? this.size : this.count;
-    for (let i=0; i<len; i++) {
-      newVal += this.val[i];
-    }
-
-    return newVal/len
-  }
-
 }
 
 export class MaterialPlaneLayer extends CanvasLayer {
@@ -241,7 +146,7 @@ export class MaterialPlaneLayer extends CanvasLayer {
  export function findToken(coords, spacing, currentToken){
 
   if (spacing == undefined) {
-    spacing = canvas.scene.grid.size;
+    spacing = compatibleCore('10.0') ? canvas.scene.grid.size : canvas.scene.data.grid;
   }
 
   //For all tokens on the canvas: get the distance between the token and the coordinate. Get the closest token. If the distance is smaller than the hitbox of the token, 'token' is returned
@@ -253,11 +158,9 @@ export class MaterialPlaneLayer extends CanvasLayer {
     if (!token.can(game.user,"control")) {
       if (!game.settings.get(moduleName,'EnNonOwned') || !token.visible) continue;
     }
-
     let coordsCenter = token.getCenter(token.x,token.y); 
-    const dx =  Math.abs(coordsCenter.x - coords.x + (token.document.width-1)*spacing/2);
-    const dy = Math.abs(coordsCenter.y - coords.y - (token.document.height-1)*spacing/2);
-
+    const dx =  Math.abs(coordsCenter.x - coords.x);
+    const dy = Math.abs(coordsCenter.y - coords.y);
     const distance = Math.sqrt( dx*dx + dy*dy );
   
     if (distance < minDistance) {
@@ -265,9 +168,8 @@ export class MaterialPlaneLayer extends CanvasLayer {
         minDistance = distance;
     }
   }
-  if (closestToken == undefined) return undefined;
-  
-  debug('nearestToken',`Token: ${closestToken?.name}, Position: (${closestToken.x}, ${closestToken.y}), Distance: ${minDistance}, Min Distance: ${spacing}, Control: ${minDistance<spacing}`)
+
+  //debug('nearestToken',`Token: ${closestToken.name}, Position: (${closestToken.x}, ${closestToken.y}), Distance: ${minDistance}, Min Distance: ${spacing}, Control: ${minDistance<spacing}`)
 
   if (minDistance < spacing) 
     return closestToken;      

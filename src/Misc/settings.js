@@ -1,8 +1,23 @@
-import { moduleName, hwVariant, hwFirmware, hwWebserver, msVersion, latestReleases, checkForUpdate, urls } from "../../MaterialPlane.js";
+import { moduleName, hwVariant, hwFirmware, hwWebserver, msVersion, masterVersions, checkForUpdate } from "../../MaterialPlane.js";
 import { lastBaseAddress } from "../analyzeIR.js";
 import { sendWS } from "../websocket.js";
+import { compatibleCore } from "./misc.js";
 
 export const registerSettings = function() {
+
+    game.settings.register(moduleName,'showUpdateDialog_215', {
+        scope: "world",
+        config: false,
+        type: Boolean,
+        default: true
+    });
+
+    game.settings.register(moduleName,'migrate_215', {
+        scope: "world",
+        config: false,
+        type: Boolean,
+        default: true
+    });
 
     game.settings.register(moduleName,'baseSetup', {
         scope: "world",
@@ -17,6 +32,19 @@ export const registerSettings = function() {
         type: Array,
         default: []
     });
+
+    /**
+     * Configuration (button)
+     */
+    /*
+     game.settings.registerMenu(moduleName, 'configuration',{
+        name: "MaterialPlane.Sett.Config",
+        label: "MaterialPlane.Sett.Config",
+        icon: "fas fa-cog",
+        type: mpConfig,
+        restricted: false
+    });
+    */
 
     /**
      * Select device
@@ -45,7 +73,7 @@ export const registerSettings = function() {
         default: 1000,
         type: Number,
         scope: 'world',
-        range: { min: 500, max: 5000, step: 100 },
+        range: { min: 10, max: 5000, step: 10 },
         config: false,
     });
 
@@ -56,10 +84,9 @@ export const registerSettings = function() {
         default: 500,
         type: Number,
         scope: 'world',
-        range: { min: 100, max: 5000, step: 100 },
+        range: { min: 10, max: 5000, step: 10 },
         config: false, 
     });
-
     /**
      * Touch Scale X
      */
@@ -81,7 +108,26 @@ export const registerSettings = function() {
         range: { min: 0, max: 2, step: 0.01 },
         config: false,
     });
-
+    /**
+     * Zoom Factor
+     */
+    game.settings.register(moduleName, 'zoomFactor', {
+        default: 0.35,
+        type: Number,
+        scope: 'world',
+        range: { min: 0.1, max: 1, step: 0.05 },
+        config: false, 
+    });
+        /**
+     * Rotation Threshold
+     */
+        game.settings.register(moduleName, 'rotationThreshold', {
+            default: 20,
+            type: Number,
+            scope: 'world',
+            range: { min: 0, max: 100, step: 5 },
+            config: false, 
+        });
     /**
      * Sets the movement method
      */
@@ -112,7 +158,15 @@ export const registerSettings = function() {
         default: true,
         type: Boolean
     });
-
+    /**
+ * Allow Navigation
+ */
+    game.settings.register(moduleName,'touchNavigation', {
+        scope: "world",
+        config: false,
+        default: true,
+        type: Boolean
+    });
     /**
      * Sets if the target client is allowed to move non-owned tokens
      */
@@ -154,13 +208,14 @@ export const registerSettings = function() {
         config: false
     });
 
+    
     /**
-     * Sets the active MP user
+     * Sets the name of the target client (who has the TV connected)
      */
-    game.settings.register(moduleName,'ActiveUser', {
+     game.settings.register(moduleName,'TargetName', {
         scope: "world",
         config: false,
-        default: "",
+        default: "Observer",
         type: String
     });
 
@@ -182,25 +237,6 @@ export const registerSettings = function() {
         config: false,
         default: "materialsensor.local:3000",
         type: String
-    });
-
-    /**
-     * Connection mode
-     */
-    game.settings.register(moduleName,'ConnectionMode', {
-        scope: "client",
-        config: false,
-        default: "",
-        type: String
-    });
-
-    game.settings.register(moduleName, 'nrOfConnAttempts', {
-        default: 5,
-        type: Number,
-        scope: 'client',
-        range: { min: 0, max: 100, step: 1 },
-        config: false
-        
     });
 
     /**
@@ -230,16 +266,6 @@ export const registerSettings = function() {
         default: false,
         type: Boolean
     });
-
-
-    //Settings migration
-    if (game.settings.get(moduleName, 'ConnectionMode') == "") {
-        console.log("Migrating Material Plane setting: 'Connection Mode'");
-        if (!game.settings.get(moduleName, 'Enable')) game.settings.set(moduleName, 'ConnectionMode', 'noConnect')
-        else if (game.settings.get(moduleName, 'EnMaterialServer')) game.settings.set(moduleName, 'ConnectionMode', 'materialCompanion')
-        else game.settings.set(moduleName, 'ConnectionMode', 'direct')
-    }
-
 }
 
 export function onHwVariantChange(variant) {
@@ -288,40 +314,33 @@ export class mpConfig extends FormApplication {
         this.baseSettings = game.settings.get(moduleName, 'baseSetup');
         this.irCodes = game.settings.get(moduleName,'remoteSetup');
 
-        let users = [];
-        for (let u of game.users) {
-            
-            users.push({
-                name: u.name,
-                id: u.id,
-                active: game.settings.get(moduleName, 'ActiveUser') == u.id ? "selected" : ""
-            })
-        }
-
         let data = {
             hwVariant,
             blockInteraction: this.blockInteraction,
 
-            users,
+            targetName: game.settings.get(moduleName,'TargetName'),
             device: game.settings.get(moduleName,'device'),
             movementMethod: game.settings.get(moduleName,'movementMethod'),
             deselect: game.settings.get(moduleName,'deselect'),
             movementMarker: game.settings.get(moduleName,'movementMarker'),
+            touchNavigation: game.settings.get(moduleName,'touchNavigation'),
             nonOwnedMovement: game.settings.get(moduleName,'EnNonOwned'),
             collision: game.settings.get(moduleName,'collisionPrevention'),
             hideElements: game.settings.get(moduleName,'HideElements'),
             penMenu: game.settings.get(moduleName,'MenuSize'),
 
-            connectionMode: game.settings.get(moduleName,'ConnectionMode'),
+            connectToSensor: game.settings.get(moduleName,'Enable'),
             sensorIP: game.settings.get(moduleName,'IP'),
+            connectThroughMS: game.settings.get(moduleName,'EnMaterialServer'),
             materialServerIP: game.settings.get(moduleName,'MaterialServerIP'),
-            nrOfConnAttempts: game.settings.get(moduleName,'nrOfConnAttempts'),
 
             tapMode: game.settings.get(moduleName,'tapMode'),
             touchTimeout: game.settings.get(moduleName,'touchTimeout'),
             tapTimeout: game.settings.get(moduleName,'tapTimeout'),
             touchScaleX: game.settings.get(moduleName,'touchScaleX'),
             touchScaleY: game.settings.get(moduleName,'touchScaleY'),
+            zoomFactor: game.settings.get(moduleName,'zoomFactor'),
+            rotationThreshold: game.settings.get(moduleName,'rotationThreshold'),
 
             baseSetup: this.baseSettings,
 
@@ -331,16 +350,16 @@ export class mpConfig extends FormApplication {
 
             sensor: this.sensorSettings,
 
-            minimumFwVersion: game.modules.get("MaterialPlane").flags.minimumSensorVersion,
-            minimumWsVersion: game.modules.get("MaterialPlane").flags.minimumSensorWsVersion,
-            minimumBaseVersion: game.modules.get("MaterialPlane").flags.minimumBaseVersion,
-            minimumPenVersion: game.modules.get("MaterialPlane").flags.minimumPenVersion,
-            minimumMsVersion: game.modules.get("MaterialPlane").flags.minimumMSversion,
-            localModuleVersion: game.modules.get("MaterialPlane").version,
+            minimumFwVersion: compatibleCore('10.0') ? game.modules.get("MaterialPlane").flags.minimumSensorVersion : game.modules.get("MaterialPlane").data.flags.minimumSensorVersion,
+            minimumWsVersion: compatibleCore('10.0') ? game.modules.get("MaterialPlane").flags.minimumSensorWsVersion : game.modules.get("MaterialPlane").data.flags.minimumSensorWsVersion,
+            minimumBaseVersion: compatibleCore('10.0') ? game.modules.get("MaterialPlane").flags.minimumBaseVersion : game.modules.get("MaterialPlane").data.flags.minimumBaseVersion,
+            minimumPenVersion: compatibleCore('10.0') ? game.modules.get("MaterialPlane").flags.minimumPenVersion : game.modules.get("MaterialPlane").data.flags.minimumPenVersion,
+            minimumMsVersion: compatibleCore('10.0') ? game.modules.get("MaterialPlane").flags.minimumMSversion : game.modules.get("MaterialPlane").data.flags.minimumMSversion,
+            localModuleVersion: compatibleCore('10.0') ? game.modules.get("MaterialPlane").version : game.modules.get("MaterialPlane").data.version,
             localFwVersion: hwFirmware,
             localSWsVersion: hwWebserver,
             localMsVersion: msVersion,
-            latestReleases
+            masterVersions
         }
         return data;
     }
@@ -383,11 +402,12 @@ export class mpConfig extends FormApplication {
         const parent = this;
 
         // --- General settings ---
-        html.find("select[id=mpActiveUser]").on('change', event =>       { this.setSettings('ActiveUser',event.target.value); this.restart = true; });
+        html.find("input[id=mpTargetName]").on('change', event =>       { this.setSettings('TargetName',event.target.value); this.restart = true; });
         html.find("select[id=mpDevice]").on('change', async event =>    { await this.setSettings('device',event.target.value); this.render(); this.restart = true; });
         html.find("select[id=mpMovementMethod]").on('change', event =>  { this.setSettings('movementMethod',event.target.value); });
         html.find("input[id=mpDeselect]").on('change', event =>         { this.setSettings('deselect',event.target.checked); });
         html.find("input[id=mpMovementMarker]").on('change', event =>   { this.setSettings('movementMarker',event.target.checked); });
+        html.find("input[id=mpTouchNavigation]").on('change', event =>   { this.setSettings('touchNavigation',event.target.checked); });
         html.find("input[id=mpNonOwned]").on('change', event =>         { this.setSettings('EnNonOwned',event.target.checked); });
         html.find("input[id=mpCollision]").on('change', event =>        { this.setSettings('collisionPrevention',event.target.checked); });
         html.find("input[id=mpHideDisplay]").on('change', event =>      { this.setSettings('HideElements',event.target.checked); this.restart = true; });
@@ -406,36 +426,10 @@ export class mpConfig extends FormApplication {
         html.find("input[id=mpBlockInteraction]").on('change', event => { parent.blockInteraction = event.target.checked; });
 
         // --- Connection settings ---
-        html.find("select[id=mpConnectionMethod]").on('change', event =>{ 
-            const target = event.target.value;
-            if (target == 'direct') {
-                document.getElementById("mpSensorIpWrapper").style.display = "";
-                document.getElementById("mpMCIpWrapper").style.display = "none";
-            }
-            else if (target == 'materialCompanion') {
-                document.getElementById("mpSensorIpWrapper").style.display = "none";
-                document.getElementById("mpMCIpWrapper").style.display = "";
-            }
-            else {
-                document.getElementById("mpSensorIpWrapper").style.display = "none";
-                document.getElementById("mpMCIpWrapper").style.display = "none";
-            }
-            this.setSettings('ConnectionMode',target); this.restart = true; 
-        });
+        html.find("input[id=mpConnect]").on('change', event =>          { this.setSettings('Enable',event.target.checked); this.restart = true; });
         html.find("input[id=mpSensorIP]").on('change', event =>         { this.setSettings('IP',event.target.value); this.restart = true; });
+        html.find("input[id=mpEnMaterialServer]").on('change', event => { this.setSettings('EnMaterialServer',event.target.checked); this.restart = true; });
         html.find("input[id=mpMaterialServerIP]").on('change', event => { this.setSettings('MaterialServerIP',event.target.value); this.restart = true; });
-        html.find("input[id=mpConnAttempts]").on('change', event =>{ 
-            const val = this.constrain(event.target.value, game.settings.settings.get("MaterialPlane.nrOfConnAttempts").range);
-            document.getElementById("mpConnAttempts").value = val;
-            document.getElementById("mpConnAttemptsNumber").value = val;
-            this.setSettings('nrOfConnAttempts',val);
-        });
-        html.find("input[id=mpConnAttemptsNumber]").on('change', event =>{ 
-            const val = this.constrain(event.target.value, game.settings.settings.get("MaterialPlane.nrOfConnAttempts").range);
-            document.getElementById("mpConnAttempts").value = val;
-            document.getElementById("mpConnAttemptsNumber").value = val;
-            this.setSettings('nrOfConnAttempts',val);
-        });
 
         // --- Touch settings ---
         html.find("select[id=mpTapMode]").on('change', event =>         { this.setSettings('tapMode',event.target.value); });
@@ -479,6 +473,23 @@ export class mpConfig extends FormApplication {
             html.find("input[id=mpTouchScaleY]")[0].value = event.target.value;
             this.setSettings('touchScaleY', event.target.value);
         });
+        html.find("input[id=mpTouchZoomFactor]").on('change', event => {
+            html.find("input[id=mpTouchZoomFactorNumber]")[0].value = event.target.value;
+            this.setSettings('zoomFactor', event.target.value);
+        });
+        html.find("input[id=mpTouchZoomFactorNumber]").on('change', event => {
+            html.find("input[id=mpTouchZoomFactor]")[0].value = event.target.value;
+            this.setSettings('zoomFactor', event.target.value);
+        });
+        html.find("input[id=mpTouchRotationThreshold]").on('change', event => {
+            html.find("input[id=mpTouchRotationThresholdNumber]")[0].value = event.target.value;
+            this.setSettings('rotationThreshold', event.target.value);
+        });
+        html.find("input[id=mpTouchRotationThresholdNumber]").on('change', event => {
+            html.find("input[id=mpTouchRotationThreshold]")[0].value = event.target.value;
+            this.setSettings('rotationThreshold', event.target.value);
+        });
+
 
         // --- Base Setup settings, more in buildBaseTable() ---
         html.find("button[name='addBaseConfig']").on('click', async event => {
@@ -508,40 +519,51 @@ export class mpConfig extends FormApplication {
         })
 
         // --- Sensor Settings ---
-        html.find("button[id=mpAutoExposure]").on('click', event =>                 { sendWS({event:'autoExposure'}); })
+        html.find("button[id=mpAutoExposure]").on('click', event =>                 { sendWS("SET IR AUTOEXPOSE"); })
+        html.find("input[id='mpSensorExposure']").on('change', event =>             { sendWS(`SET IR EXPOSURE ${event.target.value}`); })
+        html.find("input[id='mpSensorExposureNumber']").on('change', event =>       { sendWS(`SET IR EXPOSURE ${event.target.value}`); })
+        html.find("input[id='mpSensorFramePeriod']").on('change', event =>          { sendWS(`SET IR FRAMEPERIOD ${event.target.value}`); })
+        html.find("input[id='mpSensorFramePeriodNumber']").on('change', event =>    { sendWS(`SET IR FRAMEPERIOD ${event.target.value}`); })
+        html.find("input[id='mpSensorGain']").on('change', event =>                 { sendWS(`SET IR GAIN ${event.target.value}`); })
+        html.find("input[id='mpSensorGainNumber']").on('change', event =>           { sendWS(`SET IR GAIN ${event.target.value}`); })
 
-        html.find("input[id='mpSensorUpdateRate']").on('change', event =>           { sendWS({ir:{updateRate:event.target.value}}); })
-        html.find("input[id='mpSensorUpdateRateNumber']").on('change', event =>     { sendWS({ir:{updateRate:event.target.value}}); })
-
-        html.find("input[id='mpSensorBrightness']").on('change', event =>           { sendWS({ir:{brightness:event.target.value}}); })
-        html.find("input[id='mpSensorBrightnessNumber']").on('change', event =>     { sendWS({ir:{brightness:event.target.value}}); })
+        html.find("input[id='mpSensorAverage']").on('change', event =>              { sendWS(`SET IR AVERAGE ${event.target.value}`); })
+        html.find("input[id='mpSensorAverageNumber']").on('change', event =>        { sendWS(`SET IR AVERAGE ${event.target.value}`); })
+        html.find("input[id='mpSensorDropDelay']").on('change', event =>            { sendWS(`SET IR DROPDELAY ${event.target.value}`); })
+        html.find("input[id='mpSensorDropDelayNumber']").on('change', event =>      { sendWS(`SET IR DROPDELAY ${event.target.value}`); })
+        html.find("input[id='mpSensorMinBrightness']").on('change', event =>        { sendWS(`SET IR BRIGHTNESS ${event.target.value}`); })
+        html.find("input[id='mpSensorMinBrightnessNumber']").on('change', event =>  { sendWS(`SET IR BRIGHTNESS ${event.target.value}`); })
+        html.find("input[id='mpSensorNoise']").on('change', event =>                { sendWS(`SET IR NOISE ${event.target.value}`); })
+        html.find("input[id='mpSensorNoiseNumber']").on('change', event =>          { sendWS(`SET IR NOISE ${event.target.value}`); })
         
-        html.find("input[id='mpSensorMinBrightness']").on('change', event =>        { sendWS({ir:{minBrightness:event.target.value}}); })
-        html.find("input[id='mpSensorMinBrightnessNumber']").on('change', event =>  { sendWS({ir:{minBrightness:event.target.value}}); })
-
-        html.find("input[id='mpSensorAverage']").on('change', event =>              { sendWS({ir:{average:event.target.value}}); })
-        html.find("input[id='mpSensorAverageNumber']").on('change', event =>        { sendWS({ir:{average:event.target.value}}); })
-        
-        html.find("input[id='mpSensorMirrorX']").on('change', event =>              { sendWS({ir:{mirrorX:event.target.checked ? '1' : '0'}}); })
-        html.find("input[id='mpSensorMirrorY']").on('change', event =>              { sendWS({ir:{mirrorY:event.target.checked ? '1' : '0'}}); })
-        html.find("input[id='mpSensorRotate']").on('change', event =>               { sendWS({ir:{rotation:event.target.checked ? '1' : '0'}}); })
-
-        html.find("input[id='mpSensorOffsetX']").on('change', event =>              { sendWS({ir:{offsetX:event.target.value}}); })
-        html.find("input[id='mpSensorOffsetXNumber']").on('change', event =>        { sendWS({ir:{offsetX:event.target.value}}); })
-
-        html.find("input[id='mpSensorOffsetY']").on('change', event =>              { sendWS({ir:{offsetY:event.target.value}}); })
-        html.find("input[id='mpSensorOffsetYNumber']").on('change', event =>        { sendWS({ir:{offsetY:event.target.value}}); })
-
-        html.find("input[id='mpSensorScaleX']").on('change', event =>               { sendWS({ir:{scaleX:event.target.value}}); })
-        html.find("input[id='mpSensorScaleXNumber']").on('change', event =>         { sendWS({ir:{scaleX:event.target.value}}); })
-
-        html.find("input[id='mpSensorScaleY']").on('change', event =>               { sendWS({ir:{scaleY:event.target.value}}); })
-        html.find("input[id='mpSensorScaleYNumber']").on('change', event =>         { sendWS({ir:{scaleY:event.target.value}}); })
-
-        html.find("input[id='mpSensorCalEn']").on('change', event =>                { sendWS({ir:{calibration:event.target.checked ? '1' : '0'}}); })
-        html.find("input[id='mpSensorOffsetEn']").on('change', event =>             { sendWS({ir:{offsetCalibration:event.target.checked ? '1' : '0'}}); })
-        html.find("button[id='mpConfigPerformCal']").on('click', event =>           { sendWS({event:"calibration", state:"start", mode:document.getElementById('mpCalMethod').value}); })
-        html.find("button[id=mpRestartSensor]").on('click', event =>                { sendWS({event:"restart"}); })
+        html.find("input[id='mpSensorMirrorX']").on('change', event =>              { sendWS(`SET CAL MIRRORX ${event.target.checked ? "1" : "0"}`); })
+        html.find("input[id='mpSensorMirrorY']").on('change', event =>              { sendWS(`SET CAL MIRRORY ${event.target.checked ? "1" : "0"}`); })
+        html.find("input[id='mpSensorRotate']").on('change', event =>               { sendWS(`SET CAL ROTATION ${event.target.checked ? "1" : "0"}`); })
+        html.find("input[id='mpSensorOffsetX']").on('change', event =>              { sendWS(`SET CAL OFFSETX ${event.target.value}`); })
+        html.find("input[id='mpSensorOffsetXNumber']").on('change', event =>        { sendWS(`SET CAL OFFSETX ${event.target.value}`); })
+        html.find("input[id='mpSensorOffsetY']").on('change', event =>              { sendWS(`SET CAL OFFSETY ${event.target.value}`); })
+        html.find("input[id='mpSensorOffsetYNumber']").on('change', event =>        { sendWS(`SET CAL OFFSETY ${event.target.value}`); })
+        html.find("input[id='mpSensorScaleX']").on('change', event =>               { sendWS(`SET CAL SCALEX ${event.target.value}`); })
+        html.find("input[id='mpSensorScaleXNumber']").on('change', event =>         { sendWS(`SET CAL SCALEX ${event.target.value}`); })
+        html.find("input[id='mpSensorScaleY']").on('change', event =>               { sendWS(`SET CAL SCALEY ${event.target.value}`); })
+        html.find("input[id='mpSensorScaleYNumber']").on('change', event =>         { sendWS(`SET CAL SCALEY ${event.target.value}`); })
+        html.find("input[id='mpSensorZoomFactor']").on('change', event =>           { sendWS(`SET CAL ZOOMFACTOR ${event.target.value}`); })
+        html.find("input[id='mpSensorZoomFactorNumber']").on('change', event =>     { sendWS(`SET CAL ZOOMFACTOR ${event.target.value}`); })
+        html.find("input[id='mpSensorRotationThreshold']").on('change', event =>           { sendWS(`SET CAL ROTATIONTHRESHOLD ${event.target.value}`); })
+        html.find("input[id='mpSensorRotationThresholdNumber']").on('change', event =>     { sendWS(`SET CAL ROTATIONTHRESHOLD ${event.target.value}`); })
+        html.find("input[id='mpSensorCalEn']").on('change', event =>                { sendWS(`SET CAL CALIBRATION ${event.target.checked ? "1" : "0"}`); })
+        html.find("input[id='mpSensorOffsetEn']").on('change', event =>             { sendWS(`SET CAL OFFSET ${event.target.checked ? "1" : "0"}`); })
+        html.find("button[id='mpConfigPerformCal']").on('click', event =>           { 
+            let msg = "PERFORM CALIBRATION ";
+            if (document.getElementById('mpCalMethod').value == "SinglePoint")
+                msg += "SINGLE";
+            else if (document.getElementById('mpCalMethod').value == "MultiPoint")
+                msg += "MULTI";
+            else if (document.getElementById('mpCalMethod').value == "Offset")
+                msg += "OFFSET";
+            sendWS(msg);
+        })
+        html.find("button[id=mpRestartSensor]").on('click', event =>                { sendWS("RESTART"); })
 
         // --- Downloads ---
         html.find("button[id='mpConfigRefresh']").on('click', event =>           {
@@ -560,55 +582,42 @@ export class mpConfig extends FormApplication {
             
         });
         html.find("button[id='mpConfigDownloadFw']").on('click', event =>           {
-            this.downloadFile('SensorFirmware',document.getElementById('mpConfigFwVer').value);
+            const version = document.getElementById('mpConfigMasterFwVersion').innerHTML;
+            const variant = document.getElementById('mpConfigFwVer').value;
+            if (version == '' || version == undefined || version == 'Error') return;
+            let url;
+            if (variant == 'source') url = `https://github.com/CDeenen/MaterialPlane_Hardware/releases/download/Sensor_v${version}/sensor.zip`;
+            else url = `https://github.com/CDeenen/MaterialPlane_Hardware/releases/download/Sensor_v${version}/firmware_${variant}.bin`;
+            this.downloadURI(url)
         });
         html.find("button[id='mpConfigDownloadSWs']").on('click', event =>           {
-            this.downloadFile('SensorWebserver');
+            const version = document.getElementById('mpConfigMasterSWsVersion').innerHTML;
+            if (version == '' || version == undefined || version == 'Error') return;
+            let url = `https://github.com/CDeenen/MaterialPlane_Hardware/releases/download/Sensor_Webserver_v${version}/webserver.bin`;
+            this.downloadURI(url)
         });
         html.find("button[id='mpConfigDownloadBaseFw']").on('click', event =>           {
-            this.downloadFile('Base');
+            const version = document.getElementById('mpConfigMasterBaseVersion').innerHTML;
+            if (version == '' || version == undefined || version == 'Error') return;
+            let url = `https://github.com/CDeenen/MaterialPlane_Hardware/releases/download/Base_v${version}/Base.zip`;
+            this.downloadURI(url)
         });
         html.find("button[id='mpConfigDownloadPenFw']").on('click', event =>           {
-            this.downloadFile('Pen');
+            const version = document.getElementById('mpConfigMasterPenVersion').innerHTML;
+            if (version == '' || version == undefined || version == 'Error') return;
+            let url = `https://github.com/CDeenen/MaterialPlane_Hardware/releases/download/Pen_v${version}/Pen.zip`;
+            this.downloadURI(url)
         });
         html.find("button[id='mpConfigDownloadMs']").on('click', event =>           {
-            this.downloadFile('MaterialCompanion', document.getElementById('mpConfigOS').value);
-        });
-    }
-
-    downloadFile(target, variant = null) {
-
-        const url = urls.find(u => u.target == target).url;
-        let parent = this;
-        $.getJSON(url).done(function(releases) {
+            const version = document.getElementById('mpConfigMasterMsVersion').innerHTML;
+            const os = document.getElementById('mpConfigOS').value;
+            if (version == '' || version == undefined || version == 'Error') return;
+            let name = `materialserver-${os}.zip`;
             let url;
-            releases = releases.filter(r => r.prerelease == false);
-            if (target == 'SensorFirmware') releases = releases.filter(r => r.tag_name.includes('irmware'));
-            else if (target == 'SensorWebserver') releases = releases.filter(r => r.tag_name.includes('ebserver'));
-
-            if (releases.length == 0) {
-                ui.notifications.warn("Material Plane: "+game.i18n.localize("MaterialPlane.Notifications.FileNotFound"));
-                return;
-            }
-
-            if (variant == 'source') {
-                parent.downloadURI(releases[0].zipball_url)
-                return;
-            }
-
-            let assets = releases[0].assets;
-
-            if (target == 'SensorFirmware') {
-                assets = assets.filter(a => a.name.includes('zip') && a.name.includes(variant))
-            }
-            else if (target == 'MaterialCompanion') {
-                assets = assets.filter(a => a.name.includes(variant))
-            }
-
-            if (assets.length > 0) parent.downloadURI(assets[0].browser_download_url)
-            else ui.notifications.warn("Material Plane: "+game.i18n.localize("MaterialPlane.Notifications.FileNotFound"));
+            if (os == 'source') url = `https://github.com/CDeenen/MaterialServer/archive/refs/tags/v${version}.zip`;
+            else url = `https://github.com/CDeenen/MaterialServer/releases/download/v${version}/${name}`;
+            this.downloadURI(url,name)
         });
-        
     }
 
     async setSettings(settingId,val,refresh=false) {
@@ -819,35 +828,36 @@ export class mpConfig extends FormApplication {
      * @param {*} data 
      * @returns 
      */
-    updateIrPoint(data, point) {
-        if (point.number > 3) return;
+    updateIrPoint(data) {
+        if (data.point > 3) return;
         document.getElementById("mpCoordsBaseId").innerHTML=data.id;
         document.getElementById("mpCoordsBaseCmd").innerHTML=data.command;
-        document.getElementById("mpCoordsBaseBat").innerHTML=`${data.battery}%`;
 
-        if (point == undefined || isNaN(point.x)  || isNaN(point.y) || point.x == -9999 || point.y == -9999) {
-            point.x = 0;
-            point.y = 0;
-            point.avgBrightness = 0;
-            point.maxBrightness = 0;
-            point.area = 0;
+        if (data == undefined || isNaN(data.x)  || isNaN(data.y)) {
+            data.x = 0;
+            data.y = 0;
+            data.avgBrightness = 0;
+            data.maxBrightness = 0;
+            data.area = 0;
+            data.radius = 0;
+            data.id = 0;
         }
-        document.getElementById("mpCoordsX-"+point.number).innerHTML = Math.round(point.x);
-        document.getElementById("mpCoordsY-"+point.number).innerHTML = Math.round(point.y);
-        document.getElementById("mpCoordsAvgBrightness-"+point.number).innerHTML = Math.round(point.avgBrightness);
-        document.getElementById("mpCoordsMaxBrightness-"+point.number).innerHTML = Math.round(point.maxBrightness);
-        document.getElementById("mpCoordsArea-"+point.number).innerHTML = Math.round(point.area);
+        document.getElementById("mpCoordsX-"+data.point).innerHTML = Math.round(data.x);
+        document.getElementById("mpCoordsY-"+data.point).innerHTML = Math.round(data.y);
+        document.getElementById("mpCoordsAvgBrightness-"+data.point).innerHTML = Math.round(data.avgBrightness);
+        document.getElementById("mpCoordsMaxBrightness-"+data.point).innerHTML = Math.round(data.maxBrightness);
+        document.getElementById("mpCoordsArea-"+data.point).innerHTML = Math.round(data.area);
 
         let color = "black";
-        if (point.x < 0 || point.x > 4096 || point.y < 0 || point.y > 4096) color = "red";
-        if (point.maxBrightness == 0) color = "grey";
+        if (data.x < 0 || data.x > 4096 || data.y < 0 || data.y > 4096) color = "red";
+        if (data.maxBrightness == 0) color = "grey";
 
-        document.getElementById("mpCoordsPoint-"+point.number).style.color = (point.maxBrightness == 0) ? 'grey' : this.pointColors[point.number];
-        document.getElementById("mpCoordsX-"+point.number).style.color = color;
-        document.getElementById("mpCoordsY-"+point.number).style.color = color;
-        document.getElementById("mpCoordsAvgBrightness-"+point.number).style.color = color;
-        document.getElementById("mpCoordsMaxBrightness-"+point.number).style.color = color;
-        document.getElementById("mpCoordsArea-"+point.number).style.color = color;
+        document.getElementById("mpCoordsPoint-"+data.point).style.color = (data.maxBrightness == 0) ? 'grey' : this.pointColors[data.point];
+        document.getElementById("mpCoordsX-"+data.point).style.color = color;
+        document.getElementById("mpCoordsY-"+data.point).style.color = color;
+        document.getElementById("mpCoordsAvgBrightness-"+data.point).style.color = color;
+        document.getElementById("mpCoordsMaxBrightness-"+data.point).style.color = color;
+        document.getElementById("mpCoordsArea-"+data.point).style.color = color;
     }
 
     /**
@@ -861,17 +871,17 @@ export class mpConfig extends FormApplication {
         }
 
         ctx.clearRect(0, 0, stage.width, stage.height);
-        for (let point of data.irPoints) {
-            this.updateIrPoint(data, point);
+        for (let point of data) {
+            this.updateIrPoint(point);
             if (point == undefined || point.x == undefined) continue;
             if (point.x > 0 && point.y < 4096) {
                 const x = point.x/4096*stage.width;
                 const y = point.y/4096*stage.height;
-                ctx.fillStyle = this.pointColors[point.number];
+                ctx.fillStyle = this.pointColors[point.point];
                 ctx.beginPath();
                 ctx.arc(x,y,3,0,2*Math.PI,false);
                 ctx.fill();
-                ctx.fillText(point.number, x + 5, y + 10);
+                ctx.fillText(point.point, x + 5, y + 10);
             }
         }
     }
@@ -881,35 +891,41 @@ export class mpConfig extends FormApplication {
      * @param {*} settings 
      */
     setIrSettings(settings) {
-        //console.log('Set IR Settings',settings)
         this.sensorSettings = settings;
-        if (this.configOpen && document.getElementById("mpSensorUpdateRate") != null) {
-            document.getElementById("mpSensorUpdateRate").value=settings.updateRate;
-            document.getElementById("mpSensorUpdateRateNumber").value=settings.updateRate;
+        if (this.configOpen && document.getElementById("mpSensorFramePeriod") != null) {
+            document.getElementById("mpSensorFramePeriod").value=settings.ir.framePeriod;
+            document.getElementById("mpSensorFramePeriodNumber").value=settings.ir.framePeriod;
+            document.getElementById("mpSensorExposure").value=settings.ir.exposure;
+            document.getElementById("mpSensorExposureNumber").value=settings.ir.exposure;
+            document.getElementById("mpSensorGain").value=settings.ir.gain;
+            document.getElementById("mpSensorGainNumber").value=settings.ir.gain;
 
-            
-            document.getElementById("mpSensorBrightness").value=settings.brightness;
-            document.getElementById("mpSensorBrightnessNumber").value=settings.brightness;
+            document.getElementById("mpSensorMinBrightness").value=settings.ir.brightness;
+            document.getElementById("mpSensorMinBrightnessNumber").value=settings.ir.brightness;
+            document.getElementById("mpSensorNoise").value=settings.ir.noise;
+            document.getElementById("mpSensorNoiseNumber").value=settings.ir.noise;
+            document.getElementById("mpSensorAverage").value=settings.ir.averageCount;
+            document.getElementById("mpSensorAverageNumber").value=settings.ir.averageCount;
+            document.getElementById("mpSensorDropDelay").value=settings.ir.dropDelay;
+            document.getElementById("mpSensorDropDelayNumber").value=settings.ir.dropDelay;
 
-            document.getElementById("mpSensorMinBrightness").value=settings.minBrightness;
-            document.getElementById("mpSensorMinBrightnessNumber").value=settings.minBrightness;
-
-            document.getElementById("mpSensorAverage").value=settings.average;
-            document.getElementById("mpSensorAverageNumber").value=settings.average;
-
-            document.getElementById("mpSensorMirrorX").checked=settings.mirrorX;
-            document.getElementById("mpSensorMirrorY").checked=settings.mirrorY;
-            document.getElementById("mpSensorRotate").checked=settings.rotation;
-            document.getElementById("mpSensorOffsetX").value=settings.offsetX;
-            document.getElementById("mpSensorOffsetXNumber").value=settings.offsetX;
-            document.getElementById("mpSensorOffsetY").value=settings.offsetY;
-            document.getElementById("mpSensorOffsetYNumber").value=settings.offsetY;
-            document.getElementById("mpSensorScaleX").value=settings.scaleX;
-            document.getElementById("mpSensorScaleXNumber").value=settings.scaleX;
-            document.getElementById("mpSensorScaleY").value=settings.scaleY;
-            document.getElementById("mpSensorScaleYNumber").value=settings.scaleY;
-            document.getElementById("mpSensorCalEn").checked=settings.calibrationEnable;
-            document.getElementById("mpSensorOffsetEn").checked=settings.offsetEnable;
+            document.getElementById("mpSensorMirrorX").checked=settings.cal.mirrorX;
+            document.getElementById("mpSensorMirrorY").checked=settings.cal.mirrorY;
+            document.getElementById("mpSensorRotate").checked=settings.cal.rotation;
+            document.getElementById("mpSensorOffsetX").value=settings.cal.offsetX;
+            document.getElementById("mpSensorOffsetXNumber").value=settings.cal.offsetX;
+            document.getElementById("mpSensorOffsetY").value=settings.cal.offsetY;
+            document.getElementById("mpSensorOffsetYNumber").value=settings.cal.offsetY;
+            document.getElementById("mpSensorScaleX").value=settings.cal.scaleX;
+            document.getElementById("mpSensorScaleXNumber").value=settings.cal.scaleX;
+            document.getElementById("mpSensorScaleY").value=settings.cal.scaleY;
+            document.getElementById("mpSensorScaleYNumber").value=settings.cal.scaleY;
+            document.getElementById("mpSensorZoomFactor").value=settings.cal.zoomFactor;
+            document.getElementById("mpSensorZoomFactorNumber").value=settings.cal.zoomFactor;2
+            document.getElementById("mpSensorRotationThreshold").value=settings.cal.rotationThreshold;
+            document.getElementById("mpSensorRotationThresholdNumber").value=settings.cal.rotationThreshold;
+            document.getElementById("mpSensorCalEn").checked=settings.cal.calibrationEnable;
+            document.getElementById("mpSensorOffsetEn").checked=settings.cal.offsetEnable;
         }
     }
 

@@ -55,7 +55,8 @@ export class calibrationProgressScreen extends FormApplication {
         const calNextBtn = html.find("button[name='calNext']");
 
         calNextBtn.on("click", event => {
-            sendWS({event:"calibration", state:"next"});
+            const msg = "CAL NEXT";
+            sendWS(msg);
         });
        
     }
@@ -71,24 +72,24 @@ export class calibrationProgressScreen extends FormApplication {
         countdownCount = 5;
         this.render(true);
         
-        if (this.calibrationMode != 'multi' && overlay == undefined && game.settings.get(moduleName,'ActiveUser') == game.userId) {
+        if (this.calibrationMode != 'multi' && overlay == undefined && game.settings.get(moduleName,'TargetName') == game.user.name) {
             overlay = new calibrationOverlay();
             canvas.stage.addChild(overlay);
             overlay.init();
         }
         let calStart = "";
-        if (this.calibrationMode == 'SinglePoint') calStart = "Starting single-point calibration";
-        else if (this.calibrationMode == 'Offset') calStart = "Starting offset calibration";
-        else if (this.calibrationMode == 'MultiPoint') calStart = "Starting multi-point calibration";
+        if (this.calibrationMode == 'single') calStart = "Starting single-point calibration";
+        else if (this.calibrationMode == 'offset') calStart = "Starting offset calibration";
+        else if (this.calibrationMode == 'multi') calStart = "Starting multi-point calibration";
 
         let calInstructions = "";
-        if (this.calibrationMode == 'SinglePoint' || this.calibrationMode == 'Offset') calInstructions = "To calibrate, move to one of the corners of you TV and wait a few seconds (beta hardware) or hold the button on the base for a few seconds and then wait (DIY hardware). The center of the base must align with the corner of the TV.";
-        else if (this.calibrationMode == 'MultiPoint') calInstructions = "To calibrate, make sure all 4 IR points are visible and their coordinates are shown. Then press 'Calibrate'.";
+        if (this.calibrationMode == 'single' || this.calibrationMode == 'offset') calInstructions = "To calibrate, move to one of the corners of you TV and wait a few seconds (beta hardware) or hold the button on the base for a few seconds and then wait (DIY hardware). The center of the base must align with the corner of the TV.";
+        else if (this.calibrationMode == 'multi') calInstructions = "To calibrate, make sure all 4 IR points are visible and their coordinates are shown. Then press 'Calibrate'.";
 
         setTimeout(function(){
             document.getElementById('calStart').innerHTML = calStart;
             document.getElementById('calInstructions').innerHTML = calInstructions;
-            if (calMode == 'MultiPoint') {
+            if (calMode == 'multi') {
                 document.getElementById('calNextBtn').innerHTML='Calibrate';
                 document.getElementById('calNextBtn').disabled=true;
             }
@@ -98,14 +99,14 @@ export class calibrationProgressScreen extends FormApplication {
     }
 
     setMultiPoint(data) {
-        if (this.calibrationMode != 'MultiPoint') return;
+        if (this.calibrationMode != 'multi') return;
         let points = 0;
         for (let i=0; i<4; i++) {
-            if (data.points[i]?.x != undefined && data.points[i]?.y != undefined) {
+            if (data[i]?.x != undefined && data[i]?.y != undefined) {
                 points++;
-                if (data.points[i].x != 0 && data.points[i].y != 0) {
-                    document.getElementById("mpCalPoint_x"+i).innerHTML=Math.round(data.points[i].x);
-                    document.getElementById("mpCalPoint_y"+i).innerHTML=Math.round(data.points[i].y);
+                if (data[i].x != 0 && data[i].y != 0) {
+                    document.getElementById("mpCalPoint_x"+i).innerHTML=data[i].x;
+                    document.getElementById("mpCalPoint_y"+i).innerHTML=data[i].y;
                 }
                 document.getElementById("iterationPoint"+i).style.color='black';
                 document.getElementById("mpCalPoint_x"+i).style.color='black';
@@ -127,25 +128,19 @@ export class calibrationProgressScreen extends FormApplication {
         }
     }
 
-    setPoint(data) {
-        if (data.mode == 'MultiPoint') {
-            this.setMultiPoint(data);
+    setPoint(point) {
+        if (this.calibrationMode == 'multi') return;
+        this.pointCount = point;
+        if (point > 0) {
+            point--;
+            document.getElementById("iterationPoint"+point).style.color='black';
+            document.getElementById("mpCalPoint_x"+point).style.color='black';
+            document.getElementById("mpCalPoint_y"+point).style.color='black';
         }
-        else {
-            if (data.point < 0 || data.point > 3) return;
-            this.pointCount = data.point+1;
-    
-            document.getElementById("mpCalPoint_x"+data.point).value = data.x;
-            document.getElementById("mpCalPoint_y"+data.point).value = data.y;
-            document.getElementById("iterationPoint"+data.point).style.color='black';
-            document.getElementById("mpCalPoint_x"+data.point).style.color='black';
-            document.getElementById("mpCalPoint_y"+data.point).style.color='black';
-        }
-        
     }
 
     updatePoint(data) {
-        if (this.calibrationMode == 'MultiPoint') return;
+        if (this.calibrationMode == 'multi') return;
         document.getElementById("noMovement").style="display:none";
         document.getElementById("waiting").style="";
         countdownCount = 5;
@@ -155,8 +150,8 @@ export class calibrationProgressScreen extends FormApplication {
         countdown = setInterval(this.timer,1000);
         if (data.point > 0) return;
         if (data.x != undefined && data.y != undefined && data.x != 0 && data.y != 0) {
-            document.getElementById("mpCalPoint_x"+this.pointCount).innerHTML=Math.round(data.x);
-            document.getElementById("mpCalPoint_y"+this.pointCount).innerHTML=Math.round(data.y);
+            document.getElementById("mpCalPoint_x"+this.pointCount).innerHTML=data.x;
+            document.getElementById("mpCalPoint_y"+this.pointCount).innerHTML=data.y;
         }
     }
     
@@ -173,9 +168,11 @@ export class calibrationProgressScreen extends FormApplication {
             document.getElementById("noMovement").style="";
             document.getElementById("waiting").style="display:none";
             document.getElementById('MaterialPlane_CalProgMenu').style.height='auto';
+            const msg = "CAL NEXT";
             let user = game.users.contents.filter(u => u.active == true && u.isGM == true)[0];
-            if (game.userId == user.id) sendWS({event:"calibration", state:"next"});
-            else if (user == undefined && game.settings.get(moduleName,'ActiveUser') == game.userId) sendWS({event:"calibration", state:"next"});
+            
+            if (game.userId == user.id) sendWS(msg);
+            else if (user == undefined && game.settings.get(moduleName,'TargetName') == game.user.name) sendWS(msg);
         }
     }
 
@@ -203,7 +200,7 @@ export class calibrationProgressScreen extends FormApplication {
 }
 
 export function removeOverlay(){
-    if (game.settings.get(moduleName,'ActiveUser') != game.userId) return;
+    if (game.settings.get(moduleName,'TargetName') != game.user.name) return;
     if (overlay == undefined) return;
     canvas.stage.removeChild(overlay);
     overlay.remove();
@@ -224,7 +221,7 @@ export class calibrationOverlay extends ControlsLayer {
         this.addChild(this.container);
 
         var drawing = new PIXI.Graphics();
-        drawing.beginFill("0x000000");
+        drawing.beginFill("0x0");
         drawing.drawRect(0,0,canvas.scene.dimensions.width,canvas.scene.dimensions.height);
         drawing.endFill();
         drawing.alpha = 0.5;

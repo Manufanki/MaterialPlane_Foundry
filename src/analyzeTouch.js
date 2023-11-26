@@ -7,7 +7,13 @@ let tokenActive = [];
 let tapTimeout = [];
 let raiseData = [];
 let touches = [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1];
+let navTouchIds = [];
+let touchStartCoord = [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1];
+let touchCoord = [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1];
 let pauseTimeoutCheck = false;
+let lastMiddlePoint = -1;
+let zoomHistory = [];
+let startZoom = -1;
 
 export async function analyzeTouch(type,data) {
     //console.log('data',type,data)
@@ -33,6 +39,9 @@ export async function analyzeTouch(type,data) {
 
         if (type == 'end') {
             touches[id] = -1;
+            touchStartCoord[id] = -1;
+            touchCoord[id] = -1;
+            lastMiddlePoint = -1;
         }
 
         const coordinates = {x: touch.screenX, y: touch.screenY};
@@ -40,7 +49,10 @@ export async function analyzeTouch(type,data) {
         debug('touchDetect', `${type}, id: ${id}, Coordinates: (${coordinates.x}, ${coordinates.y}), Scaled: (${scaledCoordinates.x}, ${scaledCoordinates.y})`);
         const forceNew = type == 'start';
         const tapMode = game.settings.get('MaterialPlane','tapMode');
-        
+        const zoomFactor = game.settings.get('MaterialPlane','zoomFactor')*0.1;
+        const touchNavigation = game.settings.get('MaterialPlane','touchNavigation');
+
+
         if (tapMode == 'disable') {             //Tap disabled
             if (type == 'end')
                 dropToken(id);
@@ -52,94 +64,108 @@ export async function analyzeTouch(type,data) {
                 await moveToken(id,coordinates,scaledCoordinates,forceNew);
             }    
         }
-        else if (tapMode == 'tapTimeout') {        //Tap Timeout
+        else if (tapMode == 'tapTimeout') 
+        {        //Tap Timeout
             if (type == 'end') {
+                touchStartCoord[id] = -1;
+                touchCoord[id] = -1;
+                lastMiddlePoint = -1;
+                zoomHistory = [];
+                navTouchIds = navTouchIds.filter(function(item){return item !== id});
                 clearTimeout(tapTimeout[id]);
                 if (!tokenActive[id]) 
                     genericTouch(type,coordinates,scaledCoordinates);
-                else
+                else{
                     tokenActive[id] = false;
+                    dropToken(id);
+                }
             }
             else if (type == 'start')
+            {    
                 tapTimeout[id] = setTimeout(tapDetect,game.settings.get('MaterialPlane','tapTimeout'),{id,coordinates,scaledCoordinates,forceNew}); 
+                touchStartCoord[id] = coordinates;
+                if(id === 2){
+                    console.log("TEST"); 
+                 }
+                 else
+                     startZoom = canvas.stage.scale._y;
+            }
             else if (tokenActive[id]) {
-                if (timeout[id] != undefined) clearTimeout(timeout[id]);
-                timeout[id] = setTimeout(touchTimeout,game.settings.get('MaterialPlane','touchTimeout'),id);
-                await moveToken(id,coordinates,scaledCoordinates,forceNew);
+                touchCoord[id] = coordinates;
+                if(touchNavigation){
+                    
+ 
+                    if(!await navigation(id,coordinates,scaledCoordinates,forceNew,zoomFactor))
+                    {
+                        if(await moveToken(id,coordinates,scaledCoordinates,forceNew))
+                        {
+                            navTouchIds = navTouchIds.filter(function(item){return item !== id});
+                        }
+                    }
+                }
+                else{
+                    await moveToken(id,coordinates,scaledCoordinates,forceNew);
+                }
+                
             }
 
         }
         else if (tapMode == 'raiseMini') {        //Raise Mini
             if (type == 'end') {
-                if (!tokenActive[id]) genericTouch(type,coordinates,scaledCoordinates);
-                //else {
-                    clearTimeout(tapTimeout[id]);
-                    dropToken(id);
-                    raiseData.push({
-                        id,
-                        coordinates,
-                        scaledCoordinates,
-                        time: Date.now()
-                    });
-                    tokenActive[id] = false;
-                //}      
-            }
-            else if (type != 'start' && tokenActive[id]) {
-                if (timeout[id] != undefined) clearTimeout(timeout[id]);
-                timeout[id] = setTimeout(touchTimeout,game.settings.get('MaterialPlane','touchTimeout'),id);
-                await moveToken(id,coordinates,scaledCoordinates,forceNew);
-            }
-            else if (type == 'start') {
-                const currentTime = Date.now();
-                let raiseDetected = false;
-                if (raiseData.length == 0) {
-                    raiseData.push({
-                        id,
-                        coordinates,
-                        scaledCoordinates,
-                        time: Date.now()
-                    });
-                }
-                else {
-                    for (let i=raiseData.length-1; i>=0; i--) {
-                        const elapsedTime = currentTime-raiseData[i].time;
-                        if (elapsedTime >= game.settings.get('MaterialPlane','tapTimeout')) {
-                            raiseData.splice(i,1);
-                        }
-                        else {
-                            const dx =  Math.abs(raiseData[i].scaledCoordinates.x - scaledCoordinates.x);
-                            const dy = Math.abs(raiseData[i].scaledCoordinates.y - scaledCoordinates.y);
-                            const distance = Math.sqrt( dx*dx + dy*dy );
-                            if (distance < canvas.dimensions.size) {
-                                raiseDetected = true;
-                                raiseData.splice(i,1);
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                if (raiseDetected) {
-                    if (type == 'start') tokenActive[id] = true;
-                    if (tokenActive[id]) {
-                        if (timeout[id] != undefined) clearTimeout(timeout[id]);
-                        timeout[id] = setTimeout(touchTimeout,game.settings.get('MaterialPlane','touchTimeout'),id);
-                        raiseDetected = await moveToken(id,coordinates,scaledCoordinates,forceNew);
-                    }
-                    else
-                        raiseDetected = false;
-                    
-                }
-                if (!raiseDetected) {
+                touchStartCoord[id] = -1;
+                touchCoord[id] = -1;
+                lastMiddlePoint = -1;
+                zoomHistory = [];
+                navTouchIds = navTouchIds.filter(function(item){return item !== id});
+                clearTimeout(tapTimeout[id]);
+                if (!tokenActive[id]) 
                     genericTouch(type,coordinates,scaledCoordinates);
+                else{
                     tokenActive[id] = false;
+                    dropToken(id);
                 }
-                    
             }
+            else if (type == 'start')
+            {    
+                tapTimeout[id] = setTimeout(tapDetect,game.settings.get('MaterialPlane','tapTimeout'),{id,coordinates,scaledCoordinates,forceNew}); 
+                timeout[id] = setTimeout(touchTimeout,game.settings.get('MaterialPlane','touchTimeout'),id);
+                console.log("TEST"); 
+                touchStartCoord[id] = coordinates;
+                if(id !== 2)
+                {    
+                    startZoom = canvas.stage.scale._y;
+                }
+            }
+            else if (tokenActive[id]) {
+                touchCoord[id] = coordinates;
+                if(touchNavigation){
+                    
+ 
+                    if(!await navigation(id,coordinates,scaledCoordinates,forceNew,zoomFactor))
+                    {
+                        if(await moveToken(id,coordinates,scaledCoordinates,forceNew))
+                        {
+                            navTouchIds = navTouchIds.filter(function(item){return item !== id});
+                        }
+                    }
+                }
+                else{
+                    await moveToken(id,coordinates,scaledCoordinates,forceNew);
+                }
+                 if (timeout[id] != undefined) 
+                     clearTimeout(timeout[id]);
+
+                timeout[id] = setTimeout(touchTimeout,game.settings.get('MaterialPlane','touchTimeout'),id);
+                
+            }
+
             
         }
     }
 }
+
+
+
 
 async function tapDetect(data) {
     debug('tapDetect','Tap Timeout passed, allowing token movement')
@@ -149,6 +175,74 @@ async function tapDetect(data) {
 
 async function moveToken(id,coordinates,scaledCoordinates,forceNew) {
     return await IRtokens[id].update(coordinates,scaledCoordinates,forceNew);
+}
+
+
+async function navigation(id,coordinates,scaledCoordinates,forceNew,zoomFactor) {
+    if(!navTouchIds.includes(id))
+        navTouchIds.push(id);
+
+
+    // Zooming
+    if(navTouchIds.length == 2)
+    {
+        let startMiddlePoint = {x:touchStartCoord[navTouchIds[0]].x + touchStartCoord[navTouchIds[1]].x / 2,
+         y:touchStartCoord[navTouchIds[0]].y + touchStartCoord[navTouchIds[1]].y / 2};
+
+         let currentMiddlePoint = {x:touchCoord[navTouchIds[0]].x + touchCoord[navTouchIds[1]].x / 2,
+         y:touchCoord[navTouchIds[0]].y + touchCoord[navTouchIds[1]].y / 2};
+
+
+        let distanceStart = (calculateDistance(touchStartCoord[navTouchIds[0]].x, touchStartCoord[navTouchIds[0]].y,
+            touchStartCoord[navTouchIds[1]].x , touchStartCoord[navTouchIds[1]].y)/100);
+        let distance = (calculateDistance(touchCoord[navTouchIds[0]].x, touchCoord[navTouchIds[0]].y,
+            touchCoord[navTouchIds[1]].x,touchCoord[navTouchIds[1]].y)/100);
+        
+        if(zoomHistory.length > 20) zoomHistory.shift();
+        
+        zoomHistory.push(distance);
+        
+        distance = 0;
+        for (const dist of zoomHistory) {
+            distance += dist;
+        }
+        
+        distance = distance / zoomHistory.length;
+
+        var difference = distance - distanceStart;
+        var zoom = 0;
+        if(Math.abs(difference) <1){
+            var a = 1;
+            if(distance -distanceStart < 0)
+                a = -1;
+            zoom = startZoom + a * Math.pow(Math.abs(difference),2)* zoomFactor;
+        }
+        else
+            zoom = startZoom + difference* zoomFactor;
+        
+        if(zoom > 3)
+            zoom = 3;
+        else if(zoom < .1)
+            zoom = .1;
+
+        var zoomLevel =canvas.stage.scale._x;
+        zoomLevel = (1-zoomLevel /3)
+
+        if(zoomLevel < .1)
+            zoomLevel = .15;
+
+        if(lastMiddlePoint === -1){
+            lastMiddlePoint = startMiddlePoint;
+        }
+
+        var panX = canvas.stage.pivot._x + (lastMiddlePoint.x - currentMiddlePoint.x) *zoomLevel;
+        var panY = canvas.stage.pivot._y + (lastMiddlePoint.y - currentMiddlePoint.y) *zoomLevel;
+        
+        canvas.pan({x : panX, y : panY, scale : zoom});
+        lastMiddlePoint = {x:currentMiddlePoint.x,y:currentMiddlePoint.y};
+        return true;
+    }
+    return false;
 }
 
 function touchTimeout(id) {
@@ -193,12 +287,30 @@ function genericTouch(type,coordinates,scaledCoordinates) {
     }
 }
 
+function calculateDistance(x1, y1, x2, y2) {
+    const deltaX = x2 - x1;
+    const deltaY = y2 - y1;
+  
+    // Use the Pythagorean theorem to calculate the distance
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+  
+    return distance;
+  }
+
 function checkDoorClick(data) {
     const doors = canvas.walls.doors;
+
     for (let door of doors) {
+        if(door.doorControl === undefined){
+            continue;
+        }
+
         const position = door.doorControl.position;
         const hitArea = door.doorControl.hitArea;
-        if (Math.abs(data.x - position.x - hitArea.width/2) <= hitArea.width/2 && Math.abs(data.y - position.y - hitArea.height/2) <= hitArea.height/2) {
+        const widthDifference = Math.abs(data.x - position.x - hitArea.width/2)
+        const heightDifference = Math.abs(data.y - position.y - hitArea.height/2)
+
+        if (widthDifference <= hitArea.width &&  heightDifference <= hitArea.height) {
             const event = {
                 data: {
                     originalEvent: {
