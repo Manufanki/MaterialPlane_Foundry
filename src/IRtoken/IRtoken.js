@@ -116,34 +116,35 @@ export class IRtoken {
             if (collision == false) {
                 
                 if (movementMethod == 'live'){
+                    if(!this.token.document.lockRotation){
+                        if (this.rotationPosition == undefined) this.rotationPosition = coords;
+                        if(Math.abs(this.rotationPosition.x - coords.x) > this.rotationThreshold || Math.abs(this.rotationPosition.y - coords.y) > this.rotationThreshold)
+                        {
 
-                    if (this.rotationPosition == undefined) this.rotationPosition = coords;
-                    if(Math.abs(this.rotationPosition.x - coords.x) > this.rotationThreshold || Math.abs(this.rotationPosition.y - coords.y) > this.rotationThreshold)
-                    {
+                            var differenceX = this.rotationPosition.x - coords.x;
+                            var differenceY = this.rotationPosition.y - coords.y;
+                            var angleRadians = Math.atan2(differenceY , differenceX);
+                            
+                            if(this.rotationHistory.length > 5) this.rotationHistory.shift();
+                            this.rotationHistory.push(angleRadians);
 
-                        var differenceX = this.rotationPosition.x - coords.x;
-                        var differenceY = this.rotationPosition.y - coords.y;
-                        var angleRadians = Math.atan2(differenceY , differenceX);
+                            let sumSines = 0;
+                            let sumCosines = 0;
+                            for (const angle of this.rotationHistory) {
+                                sumSines += Math.sin(angle);
+                                sumCosines += Math.cos(angle);
+                            }
+                            
+                            var averageSine = sumSines / this.rotationHistory.length;
+                            var averageCosine = sumCosines / this.rotationHistory.length;
+                            
+                            // Calculate the average angle in radians and convert to degrees
+                            var averageAngleRadians = Math.atan2(averageSine, averageCosine);
+                            var averageAngleDegrees = (averageAngleRadians * 180) / Math.PI;
                         
-                        if(this.rotationHistory.length > 5) this.rotationHistory.shift();
-                        this.rotationHistory.push(angleRadians);
-
-                        let sumSines = 0;
-                        let sumCosines = 0;
-                        for (const angle of this.rotationHistory) {
-                            sumSines += Math.sin(angle);
-                            sumCosines += Math.cos(angle);
+                            this.token.data.rotation = averageAngleDegrees + 90;
+                            
                         }
-                        
-                        var averageSine = sumSines / this.rotationHistory.length;
-                        var averageCosine = sumCosines / this.rotationHistory.length;
-                        
-                        // Calculate the average angle in radians and convert to degrees
-                        var averageAngleRadians = Math.atan2(averageSine, averageCosine);
-                        var averageAngleDegrees = (averageAngleRadians * 180) / Math.PI;
-                     
-                        this.token.data.rotation = averageAngleDegrees + 90;
-                        
                     }
                     this.previousPosition = currentPos;
                     this.rotationPosition = coords;
